@@ -42,9 +42,32 @@ function execute_if_not_exist {
 	assert_file_exist "$FILE_NAME"
 }
 
+#######################################
+# Use find to get a list of files with a certain extension in the current directory
+# Globals:
+#   $FILE_LIST
+#   $IFS
+# Arguments:
+#   $1: file pattern
+# Outputs:
+#   Store a \n delimited list of file names in $FILE_LIST
+#   Change IFS so that array splitting works
+#######################################
+function get_files() {
+  FILE_LIST=$(find . -not -path '*/\.*' -type f -name "$1" | sort)
+  IFS=$'\n'
+}
+
+function merge_danmakus() {
+  get_files "*.xml"
+  # FIXME: there's gotta be a better way to do this that doesn't involve invoking BililiveRecorder
+  IFS=$'\n'
+  BililiveRecorder.Cli tool danmaku-merge "$DANMAKU_FILE" ${FILE_LIST[@]}
+}
+
 function convert_xml_to_ass() {
-  # TODO: remove need to merge using BililiveRecorder
 	# try to find ass file; if not exist, convert the xml file to ass
+	execute_if_not_exist "$DANMAKU_FILE" merge_danmakus
 	assert_file_exist "$DANMAKU_FILE"
 	echo "XML danmaku file found, now converting"
 	assert_file_exist "$DANMAKU_CONVERSION_SCRIPT"
@@ -54,22 +77,6 @@ function convert_xml_to_ass() {
 	# TODO: offset should be based on danmaku length: the longer the danmaku, the earlier it should have appeared
 	assert_file_exist "$TEMP_DANMAKU_ASS"
 	ffmpeg -hide_banner -loglevel warning -itsoffset "$DANMAKU_OFFSET" -i "$TEMP_DANMAKU_ASS" -c copy "$DANMAKU_ASS"
-}
-
-#######################################
-# Use find to get the list of flv files in the current directory
-# Globals:
-#   $FLV_LIST
-#   $IFS
-# Arguments:
-#   None
-# Outputs:
-#   Store a \n delimited list of file names in $FLV_LIST
-#   Change IFS so that array splitting works
-#######################################
-function get_flv_files() {
-  FLV_LIST=$(find . -type f -name "*.flv" | sort)
-  IFS=$'\n'
 }
 
 #######################################
@@ -87,8 +94,8 @@ function get_duration {
 
 function merge_videos {
 	# find all flv files
-	get_flv_files
-	FILE_COUNT=$(echo "$FLV_LIST" | wc -l)
+	get_files "*.flv"
+	FILE_COUNT=$(echo "$FILE_LIST" | wc -l)
 	echo "$FILE_COUNT flv file(s) found"
 
 	if [ "$FILE_COUNT" -eq 0 ]; then
@@ -96,23 +103,23 @@ function merge_videos {
     exit 1
 	elif [ "$FILE_COUNT" -eq 1 ]; then
 		# simply rename file for a single flv file
-		mv "${FLV_LIST[0]}" "$MERGED_FILE"
+		mv "${FILE_LIST[0]}" "$MERGED_FILE"
 	else
 		# merge with ffmpeg
 		rm -f "$FLV_LIST_FILE_NAME"
 		# if smart merging is off, just concat
 		if [ "$SMART_MERGING" -eq 0 ]; then
-		  for FILE in $FLV_LIST; do
+		  for FILE in $FILE_LIST; do
 	      printf "file '%s'\n" "$FILE" >> "$FLV_LIST_FILE_NAME"
   	  done;
 		else
 		  # if smart merging is on, use Python program to keep video in sync with danmaku
 		  FLV_DURATIONS=""
-		  for FILE in $FLV_LIST; do
+		  for FILE in $FILE_LIST; do
 		    get_duration "$FILE"
 		    FLV_DURATIONS="${FLV_DURATIONS} ${DURATION_RETURN}"
 		  done;
-		  python3 "$SMART_MERGING_SCRIPT" -l "$FLV_LIST" -d "$FLV_DURATIONS" -f "$FLV_LIST_FILE_NAME"
+		  python3 "$SMART_MERGING_SCRIPT" -l "$FILE_LIST" -d "$FLV_DURATIONS" -f "$FLV_LIST_FILE_NAME"
 		fi
 		echo "merging flv videos"
 		# this will generate lots of warnings about non-monotonous DTS so these warnings are ignored
