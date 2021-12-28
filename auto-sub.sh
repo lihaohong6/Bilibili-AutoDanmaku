@@ -6,6 +6,12 @@ CONFIG_FILE=./config.sh
 chmod +x "$DANMAKU_CONVERSION_SCRIPT"
 chmod +x "$SMART_MERGING_SCRIPT"
 
+#######################################
+# Assert that a file exists. If it does not, exit the program.
+# Arguments:
+#   $1: name of the file that should exist
+#   $2: an optional error message to be printed if file does not exist
+#######################################
 function assert_file_exist {
 	if [ ! -f "$1" ]; then
 		echo "no file named $1 present"
@@ -16,6 +22,17 @@ function assert_file_exist {
 	fi
 }
 
+#######################################
+# Execute a function to create a file if that file does not exist
+# Globals:
+#   $FILE_NAME
+#   $FUNCTION_NAME
+# Arguments:
+#   $1: name of the needed file
+#   $2: function to create the file
+# Outputs:
+#   No effect if file already exists. Otherwise the function is executed.
+#######################################
 function execute_if_not_exist {
 	FILE_NAME=$1
 	FUNCTION_NAME=$2
@@ -26,30 +43,50 @@ function execute_if_not_exist {
 }
 
 function convert_xml_to_ass() {
+  # TODO: remove need to merge using BililiveRecorder
 	# try to find ass file; if not exist, convert the xml file to ass
 	assert_file_exist "$DANMAKU_FILE"
 	echo "XML danmaku file found, now converting"
 	assert_file_exist "$DANMAKU_CONVERSION_SCRIPT"
 	echo "converting from xml to ass"
 	python3 "$DANMAKU_CONVERSION_SCRIPT" -o "$TEMP_DANMAKU_ASS" -s 1920x1080 -f Bilibili -fn "Microsoft YaHei" -fs 64 -a 0.7 -dm 10 -ds 8 "$DANMAKU_FILE"
+	# danmaku tends to be sent after the fact, so use an offset to make then appear early
 	# TODO: offset should be based on danmaku length: the longer the danmaku, the earlier it should have appeared
 	assert_file_exist "$TEMP_DANMAKU_ASS"
 	ffmpeg -hide_banner -loglevel warning -itsoffset "$DANMAKU_OFFSET" -i "$TEMP_DANMAKU_ASS" -c copy "$DANMAKU_ASS"
 }
 
+#######################################
+# Use find to get the list of flv files in the current directory
+# Globals:
+#   $FLV_LIST
+#   $IFS
+# Arguments:
+#   None
+# Outputs:
+#   Store a \n delimited list of file names in $FLV_LIST
+#   Change IFS so that array splitting works
+#######################################
 function get_flv_files() {
   FLV_LIST=$(find . -type f -name "*.flv" | sort)
   IFS=$'\n'
 }
 
+#######################################
+# Use ffprobe to obtain the duration of a video
+# Globals:
+#   $DURATION_RETURN
+# Arguments:
+#   $1: name of the video file
+# Outputs:
+#   Write length of video to $DURATION_RETURN
+#######################################
 function get_duration {
   DURATION_RETURN=$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$1")
 }
 
 function merge_videos {
-	# find all flv files and put their names in a txt file
-	rm -f "$FLV_LIST_FILE_NAME"
-
+	# find all flv files
 	get_flv_files
 	FILE_COUNT=$(echo "$FLV_LIST" | wc -l)
 	echo "$FILE_COUNT flv file(s) found"
@@ -62,12 +99,14 @@ function merge_videos {
 		mv "${FLV_LIST[0]}" "$MERGED_FILE"
 	else
 		# merge with ffmpeg
-		# TODO: ask dora stackoverflow to see if there's a way to keep the timestamps
+		rm -f "$FLV_LIST_FILE_NAME"
+		# if smart merging is off, just concat
 		if [ "$SMART_MERGING" -eq 0 ]; then
 		  for FILE in $FLV_LIST; do
 	      printf "file '%s'\n" "$FILE" >> "$FLV_LIST_FILE_NAME"
   	  done;
 		else
+		  # if smart merging is on, use Python program to keep video in sync with danmaku
 		  FLV_DURATIONS=""
 		  for FILE in $FLV_LIST; do
 		    get_duration "$FILE"
@@ -76,12 +115,13 @@ function merge_videos {
 		  python3 "$SMART_MERGING_SCRIPT" -l "$FLV_LIST" -d "$FLV_DURATIONS" -f "$FLV_LIST_FILE_NAME"
 		fi
 		echo "merging flv videos"
-		# this will generate lots of warnings about non-monotonous DTS and these warnings are ignored
+		# this will generate lots of warnings about non-monotonous DTS so these warnings are ignored
 		ffmpeg -hide_banner -loglevel error -safe 0 -f concat -i "$FLV_LIST_FILE_NAME" -c copy "$MERGED_FILE"
 	fi
 }
 
 function add_danmaku_to_video {
+  # there should be a video file and a danmaku file
 	execute_if_not_exist "$DANMAKU_ASS" convert_xml_to_ass
 	execute_if_not_exist "$MERGED_FILE" merge_videos
 	# use codec of original video and leave bit rate to the encoder
@@ -93,8 +133,21 @@ function add_danmaku_to_video {
 	set +x
 }
 
-# compute duration of final flv
+
+#######################################
+# Split final file into parts for convenient upload.
+# Globals:
+#   $VIDEO_WITH_DANMAKU
+#   $INITIAL_SEGMENT_LENGTH
+#   $SEGMENT_LENGTH
+#   $SEGMENT_EXTRA
+# Arguments:
+#   None
+# Outputs:
+#   Splits $VIDEO_WITH_DANMAKU into several parts named part1.flv, part2.flv, ...
+#######################################
 function split_final_video {
+  # split the final
 	execute_if_not_exist "$VIDEO_WITH_DANMAKU" add_danmaku_to_video
 	get_duration "$VIDEO_WITH_DANMAKU"
 	DURATION=${DURATION_RETURN%%.*}
@@ -112,13 +165,14 @@ function split_final_video {
 	echo "splitting video"
 	while [ "$SEGMENT_START" -lt "$DURATION" ]
 	do
-		ffmpeg -hide_banner -ss "$SEGMENT_START" -i "$VIDEO_WITH_DANMAKU" -c copy -t "$SEGMENT_TIME" "part$PART_COUNT.flv"
+		ffmpeg -hide_banner -loglevel warning -ss "$SEGMENT_START" -i "$VIDEO_WITH_DANMAKU" -c copy -t "$SEGMENT_TIME" "part$PART_COUNT.flv"
 		SEGMENT_START=$((SEGMENT_START + SEGMENT_TIME - SEGMENT_EXTRA))
 		PART_COUNT=$((PART_COUNT + 1))
-		if [ "$PART_COUNT" -eq 1 ]; then
+		if [ "$PART_COUNT" -eq 2 ]; then
 			SEGMENT_TIME=$((SEGMENT_LENGTH + SEGMENT_EXTRA))
 		fi
 	done
 }
 
+# Makefile style script. Files are created based on demand.
 split_final_video

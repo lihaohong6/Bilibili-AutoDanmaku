@@ -15,6 +15,6 @@ export SMART_MERGING=1
 export DANMAKU_OFFSET=-5
 
 # segment splitting configurations
-export INITIAL_SEGMENT_LENGTH=10800
-export SEGMENT_LENGTH=7200
+export INITIAL_SEGMENT_LENGTH=7200
+export SEGMENT_LENGTH=3600
 export SEGMENT_EXTRA=3
