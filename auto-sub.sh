@@ -3,12 +3,8 @@ CONFIG_FILE=./config.sh
 # shellcheck source=./config.sh
 . "$CONFIG_FILE"
 
-# DANMAKU_FILE=./danmaku.xml
-# DANMAKU_ASS=./danmaku.ass
-# PYTHON_SCRIPT=./danmaku2ass.py
-# FLV_LIST=./flv_files.txt
-# MERGED_FILE=./merged.flv
-# VIDEO_WITH_DANMAKU=./final.flv
+chmod +x "$DANMAKU_CONVERSION_SCRIPT"
+chmod +x "$SMART_MERGING_SCRIPT"
 
 function assert_file_exist {
 	if [ ! -f "$1" ]; then
@@ -33,68 +29,90 @@ function convert_xml_to_ass() {
 	# try to find ass file; if not exist, convert the xml file to ass
 	assert_file_exist "$DANMAKU_FILE"
 	echo "XML danmaku file found, now converting"
-	assert_file_exist "$PYTHON_SCRIPT"
+	assert_file_exist "$DANMAKU_CONVERSION_SCRIPT"
 	echo "converting from xml to ass"
-	python3 "$PYTHON_SCRIPT" -o "$TEMP_DANMAKU_ASS" -s 1920x1080 -f Bilibili -fn "Microsoft YaHei" -fs 48 "$DANMAKU_FILE"
+	python3 "$DANMAKU_CONVERSION_SCRIPT" -o "$TEMP_DANMAKU_ASS" -s 1920x1080 -f Bilibili -fn "Microsoft YaHei" -fs 64 -a 0.7 -dm 10 -ds 8 "$DANMAKU_FILE"
 	# TODO: offset should be based on danmaku length: the longer the danmaku, the earlier it should have appeared
 	assert_file_exist "$TEMP_DANMAKU_ASS"
-	ffmpeg -itsoffset "$DANMAKU_OFFSET" -i "$TEMP_DANMAKU_ASS" -c copy "$DANMAKU_ASS"
+	ffmpeg -hide_banner -loglevel warning -itsoffset "$DANMAKU_OFFSET" -i "$TEMP_DANMAKU_ASS" -c copy "$DANMAKU_ASS"
+}
+
+function get_flv_files() {
+  FLV_LIST=$(find . -type f -name "*.flv" | sort)
+  IFS=$'\n'
+}
+
+function get_duration {
+  DURATION_RETURN=$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$1")
 }
 
 function merge_videos {
 	# find all flv files and put their names in a txt file
-	rm -f "$FLV_LIST"
-	LAST_FILE=PLACE_HOLDER
-	for FILE in ./*; do
-	    if [[ "$FILE" == *.flv ]]; then
-	        printf "file '%s'\n" "$FILE" >> "$FLV_LIST"
-	        LAST_FILE="$FILE"
-	    fi
-	done;
-	assert_file_exist "$FLV_LIST" "You need as least 1 file with the extension .flv"
+	rm -f "$FLV_LIST_FILE_NAME"
 
-	# count the number of flv files
-	FILE_COUNT=$(wc -l "$FLV_LIST" | awk '{print $1}')
-	echo "$FILE_COUNT flv files found"
+	get_flv_files
+	FILE_COUNT=$(echo "$FLV_LIST" | wc -l)
+	echo "$FILE_COUNT flv file(s) found"
 
-	if [ "$FILE_COUNT" -eq 1 ]; then
+	if [ "$FILE_COUNT" -eq 0 ]; then
+    echo "You need as least 1 file with the extension .flv"
+    exit 1
+	elif [ "$FILE_COUNT" -eq 1 ]; then
 		# simply rename file for a single flv file
-		mv "$LAST_FILE" "$MERGED_FILE"
+		mv "${FLV_LIST[0]}" "$MERGED_FILE"
 	else
 		# merge with ffmpeg
 		# TODO: ask dora stackoverflow to see if there's a way to keep the timestamps
-		ffmpeg -f concat -safe 0 -i "$FLV_LIST" -c copy "$MERGED_FILE"
+		if [ "$SMART_MERGING" -eq 0 ]; then
+		  for FILE in $FLV_LIST; do
+	      printf "file '%s'\n" "$FILE" >> "$FLV_LIST_FILE_NAME"
+  	  done;
+		else
+		  FLV_DURATIONS=""
+		  for FILE in $FLV_LIST; do
+		    get_duration "$FILE"
+		    FLV_DURATIONS="${FLV_DURATIONS} ${DURATION_RETURN}"
+		  done;
+		  python3 "$SMART_MERGING_SCRIPT" -l "$FLV_LIST" -d "$FLV_DURATIONS" -f "$FLV_LIST_FILE_NAME"
+		fi
+		echo "merging flv videos"
+		# this will generate lots of warnings about non-monotonous DTS and these warnings are ignored
+		ffmpeg -hide_banner -loglevel error -safe 0 -f concat -i "$FLV_LIST_FILE_NAME" -c copy "$MERGED_FILE"
 	fi
 }
 
 function add_danmaku_to_video {
 	execute_if_not_exist "$DANMAKU_ASS" convert_xml_to_ass
 	execute_if_not_exist "$MERGED_FILE" merge_videos
+	# use codec of original video and leave bit rate to the encoder
+	CODEC="$(ffprobe -loglevel error -select_streams v:0 -show_entries stream=codec_name -of default=nk=1:nw=1 "$MERGED_FILE")"
 	echo "adding danmaku to video; this may take a while"
 	# add danmaku
 	set -x
-	ffmpeg -i "$MERGED_FILE" -vf "ass=$DANMAKU_ASS" "$VIDEO_WITH_DANMAKU"
+	ffmpeg -hide_banner -i "$MERGED_FILE" -vf "ass=$DANMAKU_ASS" -vcodec "$CODEC" "$VIDEO_WITH_DANMAKU"
 	set +x
 }
 
 # compute duration of final flv
 function split_final_video {
 	execute_if_not_exist "$VIDEO_WITH_DANMAKU" add_danmaku_to_video
-	DURATION_TEMP=$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$VIDEO_WITH_DANMAKU")
-	DURATION=${DURATION_TEMP%%.*}
-	echo "video length is $DURATION"
+	get_duration "$VIDEO_WITH_DANMAKU"
+	DURATION=${DURATION_RETURN%%.*}
+	echo "video length is $DURATION_RETURN"
 
 	# split final flv
 	# TODO: program should automatically determine initial segment length based on video size given that upload limit is 8GB
 	SEGMENT_START=0
 	PART_COUNT=1
 	SEGMENT_TIME=$((INITIAL_SEGMENT_LENGTH + SEGMENT_EXTRA))
-	if [ "$SEGMENT_TIME" -lt "$DURATION" ]; then
+	if [ "$SEGMENT_TIME" -gt "$DURATION" ]; then
+	  echo "video is short; no need to split"
 		return 0
 	fi
+	echo "splitting video"
 	while [ "$SEGMENT_START" -lt "$DURATION" ]
 	do
-		ffmpeg -ss "$SEGMENT_START" -i "$VIDEO_WITH_DANMAKU" -c copy -t "$SEGMENT_TIME" "part$PART_COUNT.flv"
+		ffmpeg -hide_banner -ss "$SEGMENT_START" -i "$VIDEO_WITH_DANMAKU" -c copy -t "$SEGMENT_TIME" "part$PART_COUNT.flv"
 		SEGMENT_START=$((SEGMENT_START + SEGMENT_TIME - SEGMENT_EXTRA))
 		PART_COUNT=$((PART_COUNT + 1))
 		if [ "$PART_COUNT" -eq 1 ]; then
