@@ -5,7 +5,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
-TEMP_DIRECTORY = "./temp"
+from file_utils import TEMP_DIRECTORY, create_temp_directory
+
 LAST_FRAME_NAME = f"{TEMP_DIRECTORY}/last.temp.jpg"
 
 
@@ -58,20 +59,6 @@ def create_freeze_frame(video: Video, output_file_name: str, freeze_frame_time: 
     return Video(output_file_name,
                  start_time=video.start_time + video.duration,
                  duration=freeze_frame_time)
-
-
-def create_temp_directory():
-    """
-    Create a directory to store temporary video files
-    :return: None
-    """
-    p = Path(TEMP_DIRECTORY)
-    if p.exists():
-        if not p.is_file():
-            shutil.rmtree(p)
-        else:
-            p.unlink(missing_ok=True)
-    p.mkdir(exist_ok=True)
 
 
 def main():
