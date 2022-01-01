@@ -6,6 +6,7 @@ danmaku.ass.temp.ass
 playground/
 *.flv
 *.xml
+*.mp4
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

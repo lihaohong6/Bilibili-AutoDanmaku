@@ -1,9 +1,12 @@
+import re
 import subprocess
+import sys
+import traceback
 from argparse import ArgumentParser
 from pathlib import Path
 from typing import Union, NewType
 
-from utils.file_utils import TEMP_DIRECTORY, assert_file_exists
+from utils.file_utils import TEMP_DIRECTORY, assert_file_exists, create_temp_directory
 
 Time = NewType('Time', Union[str, int])
 DANMAKU_OFFSET = -3
@@ -28,12 +31,16 @@ class TimeInterval:
 
 
 def run_subprocess(args: list):
+    for index in range(0, len(args)):
+        if isinstance(args[index], float):
+            args[index] = str(args[index])
     try:
         subprocess.run(args).check_returncode()
     except subprocess.CalledProcessError as e:
         print("===================Error Logs====================")
         print(args)
         print(e.output)
+        traceback.print_exc()
         exit(1)
 
 
@@ -42,7 +49,7 @@ def clip_section(source: Path, out: Path,
     time_start = interval.time_start
     duration = interval.duration
     if not danmaku:
-        run_subprocess(["ffmpeg", *log_flags, "-ss", time_start, "-i", source, "-t", "-c", "copy", duration, out])
+        run_subprocess(["ffmpeg", *log_flags, "-ss", time_start, "-i", source, "-t", duration, "-c", "copy", out])
     else:
         temp_video = Path(f"{TEMP_DIRECTORY}/temp_clip.flv")
         temp_sub = Path(f"{TEMP_DIRECTORY}/temp_subs.ass")
@@ -61,11 +68,11 @@ def split_and_assemble(source: Path, out: Path, intervals: list[TimeInterval], d
         temp_file = Path(f"{TEMP_DIRECTORY}/part{index}.flv")
         clip_section(source, temp_file, interval, danmaku)
         temp_files.append(temp_file)
-    parts = "\n".join([f"file '{str(f)}'" for f in temp_files])
     part_list = Path(f"{TEMP_DIRECTORY}/part_list.txt")
     with open(part_list, "w") as f:
+        parts = "\n".join([f"file '../{str(f)}'" for f in temp_files])
         f.write(parts)
-    run_subprocess(["ffmpeg", *log_flags, "-f", "concat", "-i", part_list, "-c", "copy", out])
+    run_subprocess(["ffmpeg", *log_flags, "-f", "concat", "-safe", "0", "-i", part_list, "-c", "copy", out])
 
 
 def main():
@@ -77,6 +84,7 @@ def main():
     parser.add_argument("-tf", dest="time_file", type=Path, default=None)
     parser.add_argument("-d", dest="danmaku_file", type=Path, default=None)
     args = parser.parse_args()
+    create_temp_directory()
     if not args.time_file:
         split_and_assemble(args.input, args.output,
                            [TimeInterval(args.time_start, args.time_end)],
@@ -86,7 +94,8 @@ def main():
         with open(args.time_file) as f:
             lines = f.read().split("\n")
             for line in lines:
-                ts, te = tuple(line.split("-"))
+                line = re.split("[- ]+", line)
+                ts, te = line[0], line[1]
                 intervals.append(TimeInterval(ts, te))
         split_and_assemble(args.input, args.output, intervals, args.danmaku_file)
 
