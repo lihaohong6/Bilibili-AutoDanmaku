@@ -29,3 +29,5 @@ def create_temp_directory():
         else:
             p.unlink(missing_ok=True)
     p.mkdir(exist_ok=True)
+    return p
+

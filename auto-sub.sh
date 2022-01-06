@@ -1,3 +1,5 @@
+# WARNING: this script is deprecated. Use process_recording.py instead.
+
 CONFIG_FILE=./config.sh
 
 # shellcheck source=./config.sh
