@@ -7,7 +7,7 @@ def run_subprocess(args: list, echo: bool = False, **ops) -> str:
         if isinstance(args[index], float) or isinstance(args[index], int):
             args[index] = str(args[index])
     if echo:
-        print(" ".join(args))
+        print(" ".join([str(a) for a in args]))
     try:
         p: subprocess.CompletedProcess = subprocess.run(args, **ops)
         p.check_returncode()
