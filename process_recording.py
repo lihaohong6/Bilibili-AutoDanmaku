@@ -136,8 +136,6 @@ def main():
     parser.add_argument("-o", dest="output", type=Path)
     args = parser.parse_args()
     read_config_file(Path("config.json"), target=raw_config)
-    print(raw_config)
-    exit(1)
     if args.dir:
         raw_config.directory = args.dir
     global config
