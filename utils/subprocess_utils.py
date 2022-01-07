@@ -2,10 +2,12 @@ import subprocess
 import traceback
 
 
-def run_subprocess(args: list, **ops) -> str:
+def run_subprocess(args: list, echo: bool = False, **ops) -> str:
     for index in range(0, len(args)):
         if isinstance(args[index], float):
             args[index] = str(args[index])
+    if echo:
+        print(" ".join(args))
     try:
         p: subprocess.CompletedProcess = subprocess.run(args, **ops)
         p.check_returncode()

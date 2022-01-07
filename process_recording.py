@@ -76,7 +76,7 @@ def merge_videos():
     run_subprocess(["ffmpeg", "-loglevel", "error",
                     "-f", "concat", "-safe", "0",
                     "-i", file_list, "-c", "copy",
-                    config.merged_video])
+                    config.merged_video], echo=True)
 
 
 def add_danmaku_to_video():
@@ -93,7 +93,7 @@ def add_danmaku_to_video():
     run_subprocess(["ffmpeg", *log_flags, "-i", config.merged_video,
                     "-vf", f'ass="{config.ass_file.absolute()}"',
                     "-vcodec", codec, "-acodec", "copy",
-                    config.video_with_danmaku])
+                    config.video_with_danmaku], echo=True)
 
 
 def create_final_video():
@@ -123,11 +123,21 @@ def split_final_video():
     print(f"Video is split. {segment_number - 1} parts created.")
 
 
+def read_config_file(file: Path, target):
+    with open(file, "r") as f:
+        c = json.loads(f.read())
+    for attr in c:
+        setattr(target, attr, c[attr])
+
+
 def main():
     parser = ArgumentParser()
     parser.add_argument("dir", type=Path, default=None)
     parser.add_argument("-o", dest="output", type=Path)
     args = parser.parse_args()
+    read_config_file(Path("config.json"), target=raw_config)
+    print(raw_config)
+    exit(1)
     if args.dir:
         raw_config.directory = args.dir
     global config
