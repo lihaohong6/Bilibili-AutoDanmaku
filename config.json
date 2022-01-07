@@ -1,0 +1,15 @@
+{
+  "directory": ".",
+  "add_danmaku": false,
+  "xml_file": "danmaku.xml",
+  "ass_file": "danmaku.ass",
+  "merged_video": "merged.flv",
+  "video_with_danmaku": "video_with_danmaku.flv",
+  "temp_dir": "temp",
+  "smart_merge": false,
+  "split": true,
+  "initial_segment_length": 14400,
+  "segment_length": 3600,
+  "segment_extra": 3,
+  "danmaku_offset": 3
+}

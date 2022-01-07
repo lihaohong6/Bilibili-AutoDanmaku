@@ -1,2 +1,0 @@
-file '/Users/peter/Documents/Programs/shell/temp/part0.flv'
-file '/Users/peter/Documents/Programs/shell/temp/part1.flv'

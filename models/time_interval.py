@@ -1,7 +1,10 @@
 import re
+from typing import Union
 
 
-def time_to_int(t: str) -> float:
+def time_to_float(t: Union[str, float, int]) -> float:
+    if isinstance(t, float) or isinstance(t, int):
+        return float(t)
     segments = t.split(":")
     multiplier = 60 ** (len(segments) - 1)
     result = 0
@@ -12,9 +15,9 @@ def time_to_int(t: str) -> float:
 
 
 class TimeInterval:
-    def __init__(self, time_start: str, time_end: str):
-        self.time_start = time_to_int(time_start)
-        self.time_end = time_to_int(time_end)
+    def __init__(self, time_start: Union[str, float, int], time_end: Union[str, float, int]):
+        self.time_start = time_to_float(time_start)
+        self.time_end = time_to_float(time_end)
         self.duration = self.time_end - self.time_start
 
 

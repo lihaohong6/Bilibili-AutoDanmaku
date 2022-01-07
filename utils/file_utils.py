@@ -11,18 +11,20 @@ def assert_file_exists(file: Path):
         exit(1)
 
 
-def execute_if_not_exist(file: Path, func: Callable):
+def execute_if_not_exist(file: Path, func: Callable, exit_if_fail: bool = False) -> bool:
     if not file.exists():
         func()
-    assert_file_exists(file)
+    if exit_if_fail:
+        assert_file_exists(file)
+        return True
+    return file.exists() and file.is_file()
 
 
-def create_temp_directory():
+def create_temp_directory(p: Path = Path(TEMP_DIRECTORY)):
     """
     Create a directory to store temporary video files
     :return: None
     """
-    p = Path(TEMP_DIRECTORY)
     if p.exists():
         if not p.is_file():
             shutil.rmtree(p)
