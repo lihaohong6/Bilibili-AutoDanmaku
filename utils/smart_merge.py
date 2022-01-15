@@ -84,6 +84,9 @@ def smart_merge(files: list[Path], temp_dir: Path, output: Path, smart: bool = T
     videos: list[Video] = list()
     for index, file in enumerate(files):
         # extract video start time from file name
+        if len(file.name.split("-")) < 6:
+            print(f"File named {file.name} is not properly formatted. Ignoring.")
+            continue
         # FIXME: is there a more accurate way to determine start time?
         start_time = get_epoch_millisecond(*file.name.split("-")[2:5])
         video = Video(file=file, start_time=start_time, duration=durations[index])

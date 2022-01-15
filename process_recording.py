@@ -7,7 +7,7 @@ from models.time_interval import TimeInterval
 from utils.clipping_utils import clip_section
 from utils.config import log_flags
 from utils.file_utils import create_temp_directory, execute_if_not_exist, assert_file_exists
-from utils.probing_utils import get_video_duration, get_video_codec
+from utils.probing_utils import get_video_duration, get_video_codec, get_video_resolution
 from utils.smart_merge import smart_merge
 from utils.subprocess_utils import run_subprocess
 
@@ -15,19 +15,23 @@ from utils.subprocess_utils import run_subprocess
 @dataclass
 class RawConfig:
     directory: Path = Path(".")
+    ignore_video_length: float = 0
     add_danmaku: bool = False
+    # TODO: need a separate object for danmaku configuration; otherwise this is too long of a list
     xml_file: Path = Path("danmaku.xml")
     ass_file: Path = Path("danmaku.ass")
     merged_video: Path = Path("merged.flv")
     video_with_danmaku: Path = Path("video_with_danmaku.flv")
     codec: str = None
+    force_resolution: bool = False
+    resolution: str = "1920x1080"
     temp_dir: Path = Path("temp")
     smart_merge: bool = False
     split: bool = True
     initial_segment_length: int = 14400
     segment_length: int = 3600
     segment_extra: int = 3
-    danmaku_offset: float = 3
+    danmaku_offset: float = -3
 
 
 class Config(RawConfig):
@@ -38,7 +42,7 @@ class Config(RawConfig):
         self.xml_file = d.joinpath(self.xml_file)
         self.ass_file = d.joinpath(self.ass_file)
         self.merged_video = d.joinpath(self.merged_video)
-        self.video_with_danmaku = d.joinpath(self.merged_video)
+        self.video_with_danmaku = d.joinpath(self.video_with_danmaku)
         self.final_video: Path = self.video_with_danmaku if self.add_danmaku else self.merged_video
         self.temp_dir: Path = d.joinpath(self.temp_dir)
 
@@ -52,25 +56,28 @@ def update_final_video():
 
 
 def create_xml_danmaku():
-    raise NotImplementedError()
+    raise NotImplementedError("Please use BililiveRecorder to merge all xml files into a single danmaku.xml file.")
 
 
-def create_ass_danmaku():
+def create_ass_danmaku(resolution: str = "1920x1080"):
     success = execute_if_not_exist(config.xml_file, create_xml_danmaku)
     if not success:
         print("Cannot create xml danmaku file.")
         return
     temp_ass = config.temp_dir.joinpath("temp_danmaku.ass")
-    run_subprocess(["python3", "utils/danmaku2ass.py", "-o", temp_ass, "-s", "1920x1080",
+    run_subprocess(["python3", "utils/danmaku2ass.py", "-o", temp_ass, "-s", resolution,
                     "-f", "Bilibili", "-fn", "Microsoft YaHei", "-fs", "64",
                     "-a", "0.7", "-dm", "10", "-ds", "8", config.xml_file])
     # TODO: offset should be based on danmaku length: the longer the danmaku, the earlier it should have appeared
     run_subprocess(["ffmpeg", *log_flags, "-itsoffset", config.danmaku_offset,
-                    "-i", temp_ass, "-c", "-copy", config.ass_file])
+                    "-i", temp_ass, "-c", "copy", config.ass_file])
 
 
 def merge_videos():
     files = config.directory.glob("*.flv")
+    print(f"Found {len(list(files))} flv files.")
+    files = [f for f in files if get_video_duration(f) >= config.ignore_video_length]
+    print(f"{len(files)} flv files left after filtering according to duration.")
     file_list = config.temp_dir.joinpath(Path("files.txt"))
     smart_merge(list(files), config.temp_dir, file_list, smart=config.smart_merge)
     run_subprocess(["ffmpeg", "-loglevel", "error",
@@ -79,19 +86,28 @@ def merge_videos():
                     config.merged_video], echo=True)
 
 
+BACK_SLASH = "\\"
+
+
 def add_danmaku_to_video():
     assert_file_exists(config.merged_video)
-    success = execute_if_not_exist(config.ass_file, create_ass_danmaku)
+    danmaku_params = {}
+    if config.force_resolution:
+        danmaku_params['resolution'] = config.resolution
+    success = execute_if_not_exist(config.ass_file, create_ass_danmaku, params=danmaku_params)
     if not success:
-        # FIXME: Maybe fail fast is better than defensive programming?
-        config.add_danmaku = False
-        update_final_video()
-        print("WARNING: No danmaku file found. Will create a video without danmaku.")
-        return
+        raise FileNotFoundError(
+            "ERROR: No danmaku file found. Change config.json if you don't want danmaku in the video.")
+    filters = [f'ass={str(config.ass_file).replace(BACK_SLASH, "/")}']
+    if config.force_resolution:
+        resolution = config.resolution.split("x")
+        width, height = int(resolution[0]), int(resolution[1])
+        filters.append(f"scale=w={width}:h={height}:force_original_aspect_ratio=decrease")
     codec = config.codec if config.codec else get_video_codec(config.merged_video)
     print("Burning ass subtitles into video. This may take a while.")
     run_subprocess(["ffmpeg", *log_flags, "-i", config.merged_video,
-                    "-vf", f'ass="{config.ass_file.absolute()}"',
+                    # backslash doesn't work for the ass filter, even on Windows machines
+                    "-vf", ",".join(filters),
                     "-vcodec", codec, "-acodec", "copy",
                     config.video_with_danmaku], echo=True)
 
@@ -133,7 +149,6 @@ def read_config_file(file: Path, target):
 def main():
     parser = ArgumentParser()
     parser.add_argument("dir", type=Path, default=None)
-    parser.add_argument("-o", dest="output", type=Path)
     args = parser.parse_args()
     read_config_file(Path("config.json"), target=raw_config)
     if args.dir:

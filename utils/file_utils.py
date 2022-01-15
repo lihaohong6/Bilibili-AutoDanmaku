@@ -11,9 +11,9 @@ def assert_file_exists(file: Path):
         exit(1)
 
 
-def execute_if_not_exist(file: Path, func: Callable, exit_if_fail: bool = False) -> bool:
+def execute_if_not_exist(file: Path, func: Callable, exit_if_fail: bool = False, **params) -> bool:
     if not file.exists():
-        func()
+        func(**params)
     if exit_if_fail:
         assert_file_exists(file)
         return True
