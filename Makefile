@@ -10,4 +10,7 @@ build:
 	mv ${TARGET_DIR}/config.default.json ${TARGET_DIR}/config.json
 
 windows: build
-	cp run.bat lib/win/* ${TARGET_DIR}
+	cp scripts/run.bat ${TARGET_DIR}
+
+windows-lib: build
+	cp lib/win/* ${TARGET_DIR}
