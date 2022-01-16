@@ -1,4 +1,5 @@
 import json
+import logging
 from argparse import ArgumentParser
 from dataclasses import dataclass
 from pathlib import Path
@@ -62,7 +63,7 @@ def create_xml_danmaku():
 def create_ass_danmaku(resolution: str = "1920x1080"):
     success = execute_if_not_exist(config.xml_file, create_xml_danmaku)
     if not success:
-        print("Cannot create xml danmaku file.")
+        logging.warning("Cannot create xml danmaku file.")
         return
     temp_ass = config.temp_dir.joinpath("temp_danmaku.ass")
     run_subprocess(["python3", "utils/danmaku2ass.py", "-o", temp_ass, "-s", resolution,
@@ -74,10 +75,11 @@ def create_ass_danmaku(resolution: str = "1920x1080"):
 
 
 def merge_videos():
-    files = config.directory.glob("*.flv")
-    print(f"Found {len(list(files))} flv files.")
+    files = list(config.directory.glob("*.flv"))
+    logging.info(f"Found {len(files)} flv files.")
+    logging.info(f"Excluding files less than {config.ignore_video_length} seconds long.")
     files = [f for f in files if get_video_duration(f) >= config.ignore_video_length]
-    print(f"{len(files)} flv files left after filtering according to duration.")
+    logging.info(f"{len(files)} flv files left after filtering according to duration.")
     file_list = config.temp_dir.joinpath(Path("files.txt"))
     smart_merge(list(files), config.temp_dir, file_list, smart=config.smart_merge)
     run_subprocess(["ffmpeg", "-loglevel", "error",
@@ -94,17 +96,18 @@ def add_danmaku_to_video():
     danmaku_params = {}
     if config.force_resolution:
         danmaku_params['resolution'] = config.resolution
-    success = execute_if_not_exist(config.ass_file, create_ass_danmaku, params=danmaku_params)
+    success = execute_if_not_exist(config.ass_file, create_ass_danmaku, **danmaku_params)
     if not success:
         raise FileNotFoundError(
             "ERROR: No danmaku file found. Change config.json if you don't want danmaku in the video.")
-    filters = [f'ass={str(config.ass_file).replace(BACK_SLASH, "/")}']
+    filters = ["fps=60", f'ass={str(config.ass_file).replace(BACK_SLASH, "/")}']
     if config.force_resolution:
         resolution = config.resolution.split("x")
         width, height = int(resolution[0]), int(resolution[1])
-        filters.append(f"scale=w={width}:h={height}:force_original_aspect_ratio=decrease")
+        filters.insert(0, f"scale=w={width}:h={height}:force_original_aspect_ratio=decrease")
+        filters.insert(1, f"pad={width}:{height}:-1:-1:color=black")
     codec = config.codec if config.codec else get_video_codec(config.merged_video)
-    print("Burning ass subtitles into video. This may take a while.")
+    logging.info("Burning ass subtitles into video. This may take a while.")
     run_subprocess(["ffmpeg", *log_flags, "-i", config.merged_video,
                     # backslash doesn't work for the ass filter, even on Windows machines
                     "-vf", ",".join(filters),
@@ -121,13 +124,17 @@ def create_final_video():
 
 def split_final_video():
     execute_if_not_exist(config.final_video, create_final_video)
+    if not config.split:
+        logging.info("Final video produced. ")
+        return
     duration = get_video_duration(config.final_video)
     segment_start = 0
     next_start = config.initial_segment_length
     segment_end = config.initial_segment_length + config.segment_extra
     if segment_end >= duration:
-        print("Final video is short enough. No splitting needed.")
+        logging.info("Final video is short enough. No splitting needed.")
         return
+    logging.info(f"Final video is {duration} seconds long. Splitting...")
     segment_number = 1
     while segment_start < duration:
         file = config.directory.joinpath(Path(f"part{segment_number}.flv"))
@@ -136,7 +143,7 @@ def split_final_video():
         segment_start = next_start
         next_start = segment_start + config.segment_length
         segment_end = next_start + config.segment_extra
-    print(f"Video is split. {segment_number - 1} parts created.")
+    logging.info(f"Video is split. {segment_number - 1} parts created.")
 
 
 def read_config_file(file: Path, target):
@@ -147,6 +154,8 @@ def read_config_file(file: Path, target):
 
 
 def main():
+    logging.basicConfig(level=logging.INFO)
+    logging.getLogger().addHandler(logging.StreamHandler())
     parser = ArgumentParser()
     parser.add_argument("dir", type=Path, default=None)
     args = parser.parse_args()

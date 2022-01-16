@@ -1,0 +1,19 @@
+{
+  "directory": "data",
+  "ignore_video_length": 5,
+  "add_danmaku": true,
+  "xml_file": "danmaku.xml",
+  "ass_file": "danmaku.ass",
+  "merged_video": "merged.flv",
+  "video_with_danmaku": "video_with_danmaku.flv",
+  "codec": "h264",
+  "force_resolution": false,
+  "resolution": "1920x1080",
+  "temp_dir": "temp",
+  "smart_merge": true,
+  "split": true,
+  "initial_segment_length": 14400,
+  "segment_length": 7200,
+  "segment_extra": 3,
+  "danmaku_offset": -5
+}
