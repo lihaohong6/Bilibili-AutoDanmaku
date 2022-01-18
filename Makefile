@@ -8,6 +8,7 @@ build:
 	cp -r models utils README.md process_recording.py ${TARGET_DIR}
 	cp config.default.json ${TARGET_DIR}
 	mv ${TARGET_DIR}/config.default.json ${TARGET_DIR}/config.json
+	mkdir ${TARGET_DIR}/data
 
 windows: build
 	cp scripts/run.bat ${TARGET_DIR}
