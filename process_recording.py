@@ -77,6 +77,7 @@ def create_ass_danmaku(resolution: str = "1920x1080"):
 def merge_videos():
     files = list(config.directory.glob("*.flv"))
     logging.info(f"Found {len(files)} flv files.")
+    assert len(files) > 0, "No flv file found."
     logging.info(f"Excluding files less than {config.ignore_video_length} seconds long.")
     files = [f for f in files if get_video_duration(f) >= config.ignore_video_length]
     logging.info(f"{len(files)} flv files left after filtering according to duration.")
