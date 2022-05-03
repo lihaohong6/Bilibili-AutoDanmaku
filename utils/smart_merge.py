@@ -45,7 +45,7 @@ def create_freeze_frame(video: Video, output_file: Path, freeze_frame_time: int,
     """
     last_frame = temp_dir.joinpath(LAST_FRAME)
     # extract the last frame of the video
-    run_subprocess(["rm", "-f", last_frame])
+    last_frame.unlink(missing_ok=True)
     run_subprocess(["ffmpeg", "-hide_banner", "-loglevel", "warning", "-sseof", "-1", "-i", video.file,
                     "-update", "1", "-q:v", "1", last_frame])
     # FIXME: copy codec of original video
